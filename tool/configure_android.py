@@ -28,6 +28,8 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "hyouka.messages/sms"
         private const val ROLE_REQUEST = 4201
         private const val SMS_PERMISSIONS_REQUEST = 4202
+        private const val PREFS = "hyouka_messages"
+        private const val DEFAULT_PROMPT_SHOWN = "default_prompt_shown"
     }
 
     private var roleRequestInProgress = false
@@ -43,6 +45,9 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isDefaultSmsApp" -> result.success(isDefaultSmsApp())
+                "shouldPromptDefaultSmsApp" ->
+                    result.success(!preferences().getBoolean(DEFAULT_PROMPT_SHOWN, false))
+                "autoPromptDefaultSmsApp" -> autoPromptDefaultSmsApp(result)
                 "requestDefaultSmsApp" -> requestDefaultSmsApp(result)
                 "requestSmsPermissions" -> requestSmsPermissions(result)
                 "getConversations" -> queryConversations(result)
@@ -71,6 +76,9 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun preferences() =
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+
     private fun isDefaultSmsApp(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = getSystemService(RoleManager::class.java)
@@ -78,6 +86,11 @@ class MainActivity : FlutterActivity() {
         } else {
             Telephony.Sms.getDefaultSmsPackage(this) == packageName
         }
+    }
+
+    private fun autoPromptDefaultSmsApp(result: MethodChannel.Result) {
+        preferences().edit().putBoolean(DEFAULT_PROMPT_SHOWN, true).apply()
+        requestDefaultSmsApp(result)
     }
 
     private fun requestDefaultSmsApp(result: MethodChannel.Result) {
@@ -131,15 +144,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun requestSmsPermissions(result: MethodChannel.Result) {
-        val required = mutableListOf(
+        val required = arrayOf(
             Manifest.permission.READ_SMS,
             Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_SMS
         )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            required += Manifest.permission.POST_NOTIFICATIONS
-        }
 
         val missing = required.filter {
             checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
@@ -159,7 +168,6 @@ class MainActivity : FlutterActivity() {
             try {
                 val grouped = LinkedHashMap<Long, MutableMap<String, Any>>()
                 val projection = arrayOf(
-                    Sms._ID,
                     Sms.THREAD_ID,
                     Sms.ADDRESS,
                     Sms.BODY,
@@ -266,6 +274,7 @@ class MainActivity : FlutterActivity() {
 
                 val values = ContentValues().apply {
                     put(Sms.READ, 1)
+                    put(Sms.SEEN, 1)
                 }
                 contentResolver.update(
                     Sms.CONTENT_URI,
@@ -357,8 +366,7 @@ class MainActivity : FlutterActivity() {
 }
 ''',
 encoding="utf-8"
-)
-
+),
 (SRC / "SmsReceiver.kt").write_text(
 r'''package com.tomasthrawat.hyouka_messages
 
@@ -413,8 +421,7 @@ class SmsReceiver : BroadcastReceiver() {
 }
 ''',
 encoding="utf-8"
-)
-
+),
 (SRC / "WapPushReceiver.kt").write_text(
 r'''package com.tomasthrawat.hyouka_messages
 
@@ -429,8 +436,7 @@ class WapPushReceiver : BroadcastReceiver() {
 }
 ''',
 encoding="utf-8"
-)
-
+),
 (SRC / "RespondViaMessageService.kt").write_text(
 r'''package com.tomasthrawat.hyouka_messages
 
@@ -457,7 +463,6 @@ permission_block = """
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 """
 
 if 'android.permission.READ_SMS' not in text:
