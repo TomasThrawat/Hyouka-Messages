@@ -88,7 +88,7 @@ class _MessagesScreenState extends State<MessagesScreen>
   List<SmsConversation> _conversations = const [];
   bool _loading = true;
   bool _isDefault = false;
-  bool _defaultPromptedThisLaunch = false;
+  bool _autoPromptedThisLaunch = false;
   bool _permissionsRequestedThisLaunch = false;
   String? _error;
 
@@ -121,13 +121,21 @@ class _MessagesScreenState extends State<MessagesScreen>
 
       setState(() {
         _isDefault = defaultApp;
-        _error = null;
+        if (defaultApp) {
+          _error = null;
+        }
       });
 
       if (!defaultApp) {
-        if (!_defaultPromptedThisLaunch) {
-          _defaultPromptedThisLaunch = true;
-          await _smsChannel.invokeMethod('requestDefaultSmsApp');
+        if (!_autoPromptedThisLaunch) {
+          final shouldPrompt = await _smsChannel
+                  .invokeMethod<bool>('shouldPromptDefaultSmsApp') ??
+              false;
+
+          if (shouldPrompt) {
+            _autoPromptedThisLaunch = true;
+            await _smsChannel.invokeMethod('autoPromptDefaultSmsApp');
+          }
         }
         return;
       }
@@ -308,9 +316,11 @@ class _MessagesScreenState extends State<MessagesScreen>
       final suffix = date.hour >= 12 ? 'PM' : 'AM';
       return hour.toString() + ':' + minute + ' ' + suffix;
     }
+
     if (date.year == now.year) {
       return date.day.toString() + '/' + date.month.toString();
     }
+
     return date.day.toString() +
         '/' +
         date.month.toString() +
@@ -429,21 +439,33 @@ class _MessagesScreenState extends State<MessagesScreen>
                                   return;
                                 }
 
-                                final messages =
-                                    await _loadThread(conversation.threadId);
-                                if (!context.mounted) return;
+                                try {
+                                  final messages =
+                                      await _loadThread(conversation.threadId);
+                                  if (!context.mounted) return;
 
-                                await Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => ConversationScreen(
-                                      threadId: conversation.threadId,
-                                      address: conversation.address,
-                                      messages: messages,
+                                  await Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => ConversationScreen(
+                                        threadId: conversation.threadId,
+                                        address: conversation.address,
+                                        messages: messages,
+                                      ),
                                     ),
-                                  ),
-                                );
+                                  );
 
-                                await _loadConversations();
+                                  await _loadConversations();
+                                } on PlatformException catch (error) {
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        error.message ??
+                                            'Unable to open conversation.',
+                                      ),
+                                    ),
+                                  );
+                                }
                               },
                               onLongPress: () =>
                                   _deleteConversation(conversation),
