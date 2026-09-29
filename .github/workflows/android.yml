@@ -39,6 +39,9 @@ jobs:
             cp .ci/flutter_template/.gitignore ./.gitignore
           fi
 
+      - name: Configure native SMS integration
+        run: python3 tool/configure_android.py
+
       - name: Get packages
         run: flutter pub get
 
