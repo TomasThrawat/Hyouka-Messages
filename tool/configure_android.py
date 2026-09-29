@@ -366,7 +366,8 @@ class MainActivity : FlutterActivity() {
 }
 ''',
 encoding="utf-8"
-),
+)
+
 (SRC / "SmsReceiver.kt").write_text(
 r'''package com.tomasthrawat.hyouka_messages
 
@@ -421,7 +422,8 @@ class SmsReceiver : BroadcastReceiver() {
 }
 ''',
 encoding="utf-8"
-),
+)
+
 (SRC / "WapPushReceiver.kt").write_text(
 r'''package com.tomasthrawat.hyouka_messages
 
@@ -436,7 +438,8 @@ class WapPushReceiver : BroadcastReceiver() {
 }
 ''',
 encoding="utf-8"
-),
+)
+
 (SRC / "RespondViaMessageService.kt").write_text(
 r'''package com.tomasthrawat.hyouka_messages
 
@@ -521,7 +524,6 @@ application_components = """
 """
 
 if 'android:name=".SmsReceiver"' not in text:
-    text = text.replace('</application>', application_components + '
-    </application>', 1)
+    text = text.replace('</application>', application_components + '</application>', 1)
 
 manifest.write_text(text, encoding="utf-8")
