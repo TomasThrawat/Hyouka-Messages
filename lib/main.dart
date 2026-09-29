@@ -1,23 +1,49 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+const _smsChannel = MethodChannel('hyouka.messages/sms');
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MessagesApp());
 }
 
-class Message {
-  const Message({
-    required this.id,
-    required this.sender,
+class SmsConversation {
+  const SmsConversation({
+    required this.threadId,
+    required this.address,
     required this.preview,
-    required this.time,
-    this.unread = false,
+    required this.date,
+    required this.messageCount,
+    required this.unread,
+  });
+
+  final int threadId;
+  final String address;
+  final String preview;
+  final DateTime date;
+  final int messageCount;
+  final bool unread;
+}
+
+class SmsItem {
+  const SmsItem({
+    required this.id,
+    required this.address,
+    required this.body,
+    required this.date,
+    required this.type,
+    required this.read,
   });
 
   final int id;
-  final String sender;
-  final String preview;
-  final String time;
-  final bool unread;
+  final String address;
+  final String body;
+  final DateTime date;
+  final int type;
+  final bool read;
+
+  bool get outgoing => type == 2;
 }
 
 class MessagesApp extends StatelessWidget {
@@ -41,7 +67,7 @@ class MessagesApp extends StatelessWidget {
           surfaceTintColor: Colors.transparent,
         ),
         dialogTheme: const DialogThemeData(
-          backgroundColor: Color(0xFF161616),
+          backgroundColor: Color(0xFF151515),
           surfaceTintColor: Colors.transparent,
         ),
       ),
@@ -57,87 +83,205 @@ class MessagesScreen extends StatefulWidget {
   State<MessagesScreen> createState() => _MessagesScreenState();
 }
 
-class _MessagesScreenState extends State<MessagesScreen> {
-  final List<Message> _messages = const [
-    Message(
-      id: 1,
-      sender: 'Hyouka',
-      preview: 'See you later.',
-      time: '9:18 PM',
-      unread: true,
-    ),
-    Message(
-      id: 2,
-      sender: 'Alex',
-      preview: 'The file is ready.',
-      time: '8:42 PM',
-    ),
-    Message(
-      id: 3,
-      sender: 'Mina',
-      preview: 'Thanks!',
-      time: '7:30 PM',
-    ),
-    Message(
-      id: 4,
-      sender: 'Omar',
-      preview: 'Can you call me?',
-      time: '6:05 PM',
-      unread: true,
-    ),
-    Message(
-      id: 5,
-      sender: 'Noor',
-      preview: 'Got it.',
-      time: 'Yesterday',
-    ),
-  ].toList();
+class _MessagesScreenState extends State<MessagesScreen>
+    with WidgetsBindingObserver {
+  List<SmsConversation> _conversations = const [];
+  bool _loading = true;
+  bool _isDefault = false;
+  bool _defaultPromptedThisLaunch = false;
+  bool _permissionsRequestedThisLaunch = false;
+  String? _error;
 
-  final Set<int> _selectedIds = <int>{};
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _prepare();
+  }
 
-  bool get _selectionMode => _selectedIds.isNotEmpty;
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-  void _toggleSelected(int id) {
-    setState(() {
-      if (_selectedIds.contains(id)) {
-        _selectedIds.remove(id);
-      } else {
-        _selectedIds.add(id);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _prepare();
+    }
+  }
+
+  Future<void> _prepare() async {
+    try {
+      final defaultApp =
+          await _smsChannel.invokeMethod<bool>('isDefaultSmsApp') ?? false;
+
+      if (!mounted) return;
+
+      setState(() {
+        _isDefault = defaultApp;
+        _error = null;
+      });
+
+      if (!defaultApp) {
+        if (!_defaultPromptedThisLaunch) {
+          _defaultPromptedThisLaunch = true;
+          await _smsChannel.invokeMethod('requestDefaultSmsApp');
+        }
+        return;
       }
-    });
+
+      if (!_permissionsRequestedThisLaunch) {
+        _permissionsRequestedThisLaunch = true;
+        final allGranted =
+            await _smsChannel.invokeMethod<bool>('requestSmsPermissions') ??
+                false;
+        if (!allGranted) return;
+      }
+
+      await _loadConversations();
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.message ?? 'SMS access is unavailable.';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.toString();
+      });
+    }
   }
 
-  void _selectAll() {
+  Future<void> _requestDefault() async {
+    try {
+      await _smsChannel.invokeMethod('requestDefaultSmsApp');
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message ?? 'Unable to open the default SMS prompt.';
+      });
+    }
+  }
+
+  Future<void> _loadConversations() async {
+    if (!mounted) return;
     setState(() {
-      _selectedIds
-        ..clear()
-        ..addAll(_messages.map((message) => message.id));
+      _loading = true;
+      _error = null;
     });
+
+    try {
+      final raw = await _smsChannel.invokeMethod<List<dynamic>>(
+        'getConversations',
+      );
+
+      final conversations = (raw ?? const <dynamic>[])
+          .map(
+            (entry) => SmsConversation(
+              threadId: (entry['threadId'] as num).toInt(),
+              address: (entry['address'] as String?) ?? 'Unknown',
+              preview: (entry['preview'] as String?) ?? '',
+              date: DateTime.fromMillisecondsSinceEpoch(
+                (entry['date'] as num).toInt(),
+              ),
+              messageCount: (entry['messageCount'] as num).toInt(),
+              unread: entry['unread'] == true,
+            ),
+          )
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _conversations = conversations;
+        _loading = false;
+      });
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.message ?? 'Unable to read SMS messages.';
+      });
+    }
   }
 
-  void _clearSelection() {
-    setState(_selectedIds.clear);
+  Future<List<SmsItem>> _loadThread(int threadId) async {
+    final raw = await _smsChannel.invokeMethod<List<dynamic>>(
+      'getThreadMessages',
+      <String, dynamic>{'threadId': threadId},
+    );
+
+    return (raw ?? const <dynamic>[])
+        .map(
+          (entry) => SmsItem(
+            id: (entry['id'] as num).toInt(),
+            address: (entry['address'] as String?) ?? 'Unknown',
+            body: (entry['body'] as String?) ?? '',
+            date: DateTime.fromMillisecondsSinceEpoch(
+              (entry['date'] as num).toInt(),
+            ),
+            type: (entry['type'] as num).toInt(),
+            read: entry['read'] == true,
+          ),
+        )
+        .toList();
   }
 
-  Future<void> _confirmDelete({
-    required List<Message> targets,
-    required bool bulk,
-  }) async {
-    if (targets.isEmpty) return;
+  Future<void> _deleteConversation(SmsConversation conversation) async {
+    final confirmed = await _confirmDelete(
+      title: 'Delete conversation?',
+      content:
+          'This will permanently delete this SMS conversation from the phone.',
+    );
+    if (confirmed != true) return;
 
-    final title = bulk
-        ? 'Delete ${targets.length} messages?'
-        : 'Delete this message?';
+    try {
+      await _smsChannel.invokeMethod(
+        'deleteThread',
+        <String, dynamic>{'threadId': conversation.threadId},
+      );
+      await _loadConversations();
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message ?? 'Unable to delete the conversation.';
+      });
+    }
+  }
 
-    final confirmed = await showDialog<bool>(
+  Future<void> _deleteAll() async {
+    if (_conversations.isEmpty) return;
+
+    final confirmed = await _confirmDelete(
+      title: 'Delete all messages?',
+      content:
+          'This will permanently delete all SMS messages stored on the phone.',
+    );
+    if (confirmed != true) return;
+
+    try {
+      await _smsChannel.invokeMethod('deleteAllMessages');
+      await _loadConversations();
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message ?? 'Unable to delete all SMS messages.';
+      });
+    }
+  }
+
+  Future<bool?> _confirmDelete({
+    required String title,
+    required String content,
+  }) {
+    return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: Text(
-          bulk
-              ? 'This will remove the selected messages from this app.'
-              : 'This message will be removed from this app.',
-        ),
+        content: Text(content),
         actions: [
           TextButton(
             key: const ValueKey('cancel-delete'),
@@ -152,46 +296,37 @@ class _MessagesScreenState extends State<MessagesScreen> {
         ],
       ),
     );
-
-    if (confirmed != true || !mounted) return;
-
-    setState(() {
-      final ids = targets.map((message) => message.id).toSet();
-      _messages.removeWhere((message) => ids.contains(message.id));
-      _selectedIds.removeWhere(ids.contains);
-    });
   }
 
-  Future<void> _handleLongPress(Message message) async {
-    if (_selectionMode) {
-      _toggleSelected(message.id);
-      return;
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    if (date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day) {
+      final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+      final minute = date.minute.toString().padLeft(2, '0');
+      final suffix = date.hour >= 12 ? 'PM' : 'AM';
+      return hour.toString() + ':' + minute + ' ' + suffix;
     }
-
-    await _confirmDelete(targets: [message], bulk: false);
-  }
-
-  Future<void> _deleteSelected() async {
-    final targets = _messages
-        .where((message) => _selectedIds.contains(message.id))
-        .toList();
-    await _confirmDelete(targets: targets, bulk: true);
+    if (date.year == now.year) {
+      return date.day.toString() + '/' + date.month.toString();
+    }
+    return date.day.toString() +
+        '/' +
+        date.month.toString() +
+        '/' +
+        date.year.toString();
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = _selectionMode
-        ? '${_selectedIds.length} selected'
-        : 'Messages';
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        automaticallyImplyLeading: false,
         titleSpacing: 20,
-        title: Text(
-          title,
-          style: const TextStyle(
+        title: const Text(
+          'Messages',
+          style: TextStyle(
             color: Colors.white,
             fontSize: 28,
             fontWeight: FontWeight.w700,
@@ -199,77 +334,151 @@ class _MessagesScreenState extends State<MessagesScreen> {
           ),
         ),
         actions: [
-          if (_selectionMode) ...[
+          if (_conversations.isNotEmpty)
             TextButton(
               key: const ValueKey('select-all'),
-              onPressed: _selectAll,
+              onPressed: _deleteAll,
               child: const Text('Select all'),
             ),
-            IconButton(
-              key: const ValueKey('delete-selected'),
-              tooltip: 'Delete selected',
-              onPressed: _deleteSelected,
-              icon: const Icon(Icons.delete_outline, color: Colors.white),
-            ),
-            IconButton(
-              key: const ValueKey('cancel-selection'),
-              tooltip: 'Cancel selection',
-              onPressed: _clearSelection,
-              icon: const Icon(Icons.close, color: Colors.white),
-            ),
-            const SizedBox(width: 8),
-          ] else ...[
-            TextButton(
-              key: const ValueKey('select-all'),
-              onPressed: _selectAll,
-              child: const Text('Select all'),
-            ),
-            const SizedBox(width: 8),
-          ],
+          const SizedBox(width: 8),
         ],
       ),
-      body: _messages.isEmpty
-          ? const _EmptyMessages()
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-              itemCount: _messages.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 2),
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                final selected = _selectedIds.contains(message.id);
-
-                return MessageTile(
-                  message: message,
-                  selected: selected,
-                  onTap: _selectionMode
-                      ? () => _toggleSelected(message.id)
-                      : () {},
-                  onLongPress: () => _handleLongPress(message),
-                );
-              },
+      body: Column(
+        children: [
+          if (!_isDefault)
+            Material(
+              color: const Color(0xFF111111),
+              child: InkWell(
+                onTap: _requestDefault,
+                child: const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 12, 14, 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.message_outlined,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Set Hyouka Messages as the default SMS app',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right,
+                        color: Color(0xFF8A8A8A),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+              child: Text(
+                _error!,
+                style: const TextStyle(
+                  color: Color(0xFFBDBDBD),
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          Expanded(
+            child: _loading
+                ? const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : _conversations.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No messages',
+                          style: TextStyle(
+                            color: Color(0xFF8A8A8A),
+                            fontSize: 16,
+                          ),
+                        ),
+                      )
+                    : RefreshIndicator(
+                        backgroundColor: const Color(0xFF151515),
+                        onRefresh: _loadConversations,
+                        child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                          itemCount: _conversations.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 2),
+                          itemBuilder: (context, index) {
+                            final conversation = _conversations[index];
+                            return _ConversationTile(
+                              conversation: conversation,
+                              time: _formatDate(conversation.date),
+                              onTap: () async {
+                                if (!_isDefault) {
+                                  await _requestDefault();
+                                  return;
+                                }
+
+                                final messages =
+                                    await _loadThread(conversation.threadId);
+                                if (!context.mounted) return;
+
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => ConversationScreen(
+                                      threadId: conversation.threadId,
+                                      address: conversation.address,
+                                      messages: messages,
+                                    ),
+                                  ),
+                                );
+
+                                await _loadConversations();
+                              },
+                              onLongPress: () =>
+                                  _deleteConversation(conversation),
+                            );
+                          },
+                        ),
+                      ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class MessageTile extends StatelessWidget {
-  const MessageTile({
-    required this.message,
-    required this.selected,
+class _ConversationTile extends StatelessWidget {
+  const _ConversationTile({
+    required this.conversation,
+    required this.time,
     required this.onTap,
     required this.onLongPress,
-    super.key,
   });
 
-  final Message message;
-  final bool selected;
+  final SmsConversation conversation;
+  final String time;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
+    final firstCharacter = conversation.address.isEmpty
+        ? '?'
+        : conversation.address.characters.first;
+
     return Material(
-      color: selected ? const Color(0xFF1A1A1A) : Colors.black,
+      color: Colors.black,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -278,13 +487,12 @@ class MessageTile extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               CircleAvatar(
                 radius: 26,
                 backgroundColor: const Color(0xFF242424),
                 child: Text(
-                  message.sender.characters.first.toUpperCase(),
+                  firstCharacter,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -301,13 +509,13 @@ class MessageTile extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            message.sender,
+                            conversation.address,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 17,
-                              fontWeight: message.unread
+                              fontWeight: conversation.unread
                                   ? FontWeight.w700
                                   : FontWeight.w600,
                             ),
@@ -315,7 +523,7 @@ class MessageTile extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          message.time,
+                          time,
                           style: const TextStyle(
                             color: Color(0xFF8A8A8A),
                             fontSize: 12,
@@ -325,21 +533,20 @@ class MessageTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      message.preview,
+                      conversation.preview,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF9D9D9D),
+                      style: TextStyle(
+                        color: const Color(0xFF9D9D9D),
                         fontSize: 14,
+                        fontWeight: conversation.unread
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                       ),
                     ),
                   ],
                 ),
               ),
-              if (selected) ...[
-                const SizedBox(width: 10),
-                const Icon(Icons.check_circle, color: Colors.white),
-              ],
             ],
           ),
         ),
@@ -348,18 +555,88 @@ class MessageTile extends StatelessWidget {
   }
 }
 
-class _EmptyMessages extends StatelessWidget {
-  const _EmptyMessages();
+class ConversationScreen extends StatelessWidget {
+  const ConversationScreen({
+    required this.threadId,
+    required this.address,
+    required this.messages,
+    super.key,
+  });
+
+  final int threadId;
+  final String address;
+  final List<SmsItem> messages;
+
+  String _formatTime(DateTime date) {
+    final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+    final minute = date.minute.toString().padLeft(2, '0');
+    final suffix = date.hour >= 12 ? 'PM' : 'AM';
+    return hour.toString() + ':' + minute + ' ' + suffix;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'No messages',
-        style: TextStyle(
-          color: Color(0xFF8A8A8A),
-          fontSize: 16,
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: Text(
+          address,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
         ),
+      ),
+      body: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
+        itemCount: messages.length,
+        itemBuilder: (context, index) {
+          final message = messages[index];
+
+          return Align(
+            alignment: message.outgoing
+                ? Alignment.centerRight
+                : Alignment.centerLeft,
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.80,
+              ),
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+              decoration: BoxDecoration(
+                color: message.outgoing
+                    ? const Color(0xFF1F1F1F)
+                    : const Color(0xFF141414),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.body,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      height: 1.3,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    _formatTime(message.date),
+                    style: const TextStyle(
+                      color: Color(0xFF858585),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
