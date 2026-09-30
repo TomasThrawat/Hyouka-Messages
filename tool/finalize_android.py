@@ -47,10 +47,28 @@ gradle_files = list((ROOT / "app").glob("build.gradle*"))
 if not gradle_files:
     raise RuntimeError("Android app Gradle file not found")
 
-gradle_text = gradle_files[0].read_text(encoding="utf-8")
+gradle_path = gradle_files[0]
+gradle_text = gradle_path.read_text(encoding="utf-8")
 if NEW_PACKAGE not in gradle_text:
     raise RuntimeError("Generated Android project does not use com.messages.chat")
+
+if "arm64-v8a" not in gradle_text:
+    marker = re.search(r"(^\s*defaultConfig\s*\{)", gradle_text, re.MULTILINE)
+    if not marker:
+        raise RuntimeError("defaultConfig block not found")
+
+    if gradle_path.suffix == ".kts":
+        abi_block = '        ndk {\n            abiFilters += listOf("arm64-v8a")\n        }\n'
+    else:
+        abi_block = '        ndk {\n            abiFilters "arm64-v8a"\n        }\n'
+
+    gradle_text = gradle_text[:marker.end()] + "\n" + abi_block + gradle_text[marker.end():]
+    gradle_path.write_text(gradle_text, encoding="utf-8")
 
 main_activity = new_dir / "MainActivity.kt"
 if not main_activity.exists():
     raise RuntimeError("MainActivity.kt was not moved to com.messages.chat")
+
+final_text = gradle_path.read_text(encoding="utf-8")
+if "arm64-v8a" not in final_text:
+    raise RuntimeError("arm64-v8a ABI filter was not configured")
