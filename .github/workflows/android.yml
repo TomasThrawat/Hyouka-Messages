@@ -33,6 +33,7 @@ jobs:
         run: |
           if [ ! -d android ]; then
             mkdir -p .ci/flutter_template
+            git config --global init.defaultBranch main
             flutter create --no-pub --platforms=android               --org com.messages               --project-name chat               .ci/flutter_template
             cp -R .ci/flutter_template/android ./android
             cp .ci/flutter_template/.metadata ./.metadata
