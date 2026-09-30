@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path("android")
 MANIFEST = ROOT / "app/src/main/AndroidManifest.xml"
@@ -26,10 +27,30 @@ encoding="utf-8"
 )
 
 text = MANIFEST.read_text(encoding="utf-8")
+
 if 'android:icon="@drawable/messages_icon"' not in text:
+    text = re.sub(
+        r'android:icon="[^"]*"',
+        'android:icon="@drawable/messages_icon"',
+        text,
+        count=1
+    )
+
+if 'android:icon="@drawable/messages_icon"' not in text:
+    raise RuntimeError("Generated AndroidManifest.xml has no android:icon attribute")
+
+if 'android:roundIcon=' in text:
+    text = re.sub(
+        r'android:roundIcon="[^"]*"',
+        'android:roundIcon="@drawable/messages_icon"',
+        text,
+        count=1
+    )
+else:
     text = text.replace(
-        '<application',
-        '<application android:icon="@drawable/messages_icon" android:roundIcon="@drawable/messages_icon"',
+        'android:icon="@drawable/messages_icon"',
+        'android:icon="@drawable/messages_icon" android:roundIcon="@drawable/messages_icon"',
         1
     )
+
 MANIFEST.write_text(text, encoding="utf-8")
