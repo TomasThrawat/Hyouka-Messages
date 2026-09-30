@@ -33,20 +33,19 @@ jobs:
         run: |
           if [ ! -d android ]; then
             mkdir -p .ci/flutter_template
-            flutter create --no-pub --platforms=android               --org com.tomasthrawat               --project-name hyouka_messages               .ci/flutter_template
+            flutter create --no-pub --platforms=android               --org com.messages               --project-name chat               .ci/flutter_template
             cp -R .ci/flutter_template/android ./android
             cp .ci/flutter_template/.metadata ./.metadata
             cp .ci/flutter_template/.gitignore ./.gitignore
           fi
 
-          # The generated Flutter/Gradle project can emit an
-          # "Already watching path" VFS message on hosted runners.
-          # Disable Gradle VFS watching because this build does not
-          # need continuous filesystem watching.
           printf '\norg.gradle.vfs.watch=false\n' >> android/gradle.properties
 
       - name: Configure native SMS integration
         run: python3 tool/configure_android.py
+
+      - name: Finalize Android identity
+        run: python3 tool/finalize_android.py
 
       - name: Configure Messages launcher icon
         run: python3 tool/configure_icon.py
@@ -67,6 +66,12 @@ jobs:
         shell: bash
         run: |
           find build/app/outputs/flutter-apk -maxdepth 1 -type f -name '*.apk' -print -exec ls -lh {} \;
+
+      - name: Verify application identity
+        shell: bash
+        run: |
+          grep -R 'applicationId\|namespace' android/app/build.gradle* | head -20
+          grep -n 'android:label' android/app/src/main/AndroidManifest.xml
 
       - name: Upload release APK
         uses: actions/upload-artifact@v7
