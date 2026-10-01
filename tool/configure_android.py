@@ -144,11 +144,14 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun requestSmsPermissions(result: MethodChannel.Result) {
-        val required = arrayOf(
+        val required = mutableListOf(
             Manifest.permission.READ_SMS,
             Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_SMS
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            required += Manifest.permission.POST_NOTIFICATIONS
+        }
 
         val missing = required.filter {
             checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
@@ -368,6 +371,8 @@ class MainActivity : FlutterActivity() {
 encoding="utf-8"
 )
 
+(SRC / "SmsNotificationHelper.kt").write_text('package com.tomasthrawat.hyouka_messages\n\nimport android.Manifest\nimport android.app.Notification\nimport android.app.NotificationChannel\nimport android.app.NotificationManager\nimport android.app.PendingIntent\nimport android.content.Context\nimport android.content.Intent\nimport android.content.pm.PackageManager\nimport android.graphics.Color\nimport android.os.Build\nimport android.widget.RemoteViews\n\nobject SmsNotificationHelper {\n    private const val CHANNEL_ID = "incoming_messages"\n    private const val CHANNEL_NAME = "Messages"\n    private const val CHANNEL_DESCRIPTION =\n        "Notifications for newly received SMS messages."\n\n    fun showIncomingMessage(\n        context: Context,\n        address: String,\n        body: String\n    ) {\n        if (\n            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&\n            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=\n                PackageManager.PERMISSION_GRANTED\n        ) {\n            return\n        }\n\n        val manager = context.getSystemService(\n            Context.NOTIFICATION_SERVICE\n        ) as NotificationManager\n\n        createChannel(manager)\n\n        val launchIntent = Intent(context, MainActivity::class.java).apply {\n            flags =\n                Intent.FLAG_ACTIVITY_NEW_TASK or\n                    Intent.FLAG_ACTIVITY_CLEAR_TOP or\n                    Intent.FLAG_ACTIVITY_SINGLE_TOP\n        }\n\n        var pendingIntentFlags = PendingIntent.FLAG_UPDATE_CURRENT\n        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {\n            pendingIntentFlags =\n                pendingIntentFlags or PendingIntent.FLAG_IMMUTABLE\n        }\n\n        val pendingIntent = PendingIntent.getActivity(\n            context,\n            0,\n            launchIntent,\n            pendingIntentFlags\n        )\n\n        val customView = RemoteViews(\n            context.packageName,\n            R.layout.notification_message\n        ).apply {\n            setTextViewText(R.id.notification_sender, address)\n            setTextViewText(R.id.notification_body, body)\n        }\n\n        val builder =\n            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {\n                Notification.Builder(context, CHANNEL_ID)\n            } else {\n                Notification.Builder(context)\n            }\n\n        builder\n            .setSmallIcon(R.drawable.ic_stat_message)\n            .setContentTitle(address)\n            .setContentText(body)\n            .setStyle(Notification.BigTextStyle().bigText(body))\n            .setColor(Color.BLACK)\n            .setAutoCancel(true)\n            .setCategory(Notification.CATEGORY_MESSAGE)\n            .setVisibility(Notification.VISIBILITY_PRIVATE)\n            .setContentIntent(pendingIntent)\n\n        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {\n            builder.setCustomContentView(customView)\n            builder.setCustomBigContentView(customView)\n        }\n\n        val notificationId =\n            (System.currentTimeMillis() and 0x7fffffff).toInt()\n        manager.notify(notificationId, builder.build())\n    }\n\n    private fun createChannel(manager: NotificationManager) {\n        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return\n\n        val channel = NotificationChannel(\n            CHANNEL_ID,\n            CHANNEL_NAME,\n            NotificationManager.IMPORTANCE_HIGH\n        ).apply {\n            description = CHANNEL_DESCRIPTION\n            enableLights(false)\n            lightColor = Color.BLACK\n        }\n\n        manager.createNotificationChannel(channel)\n    }\n}\n', encoding="utf-8")
+
 (SRC / "SmsReceiver.kt").write_text(
 r'''package com.tomasthrawat.hyouka_messages
 
@@ -414,7 +419,17 @@ class SmsReceiver : BroadcastReceiver() {
         }
 
         try {
-            context.contentResolver.insert(Sms.Inbox.CONTENT_URI, values)
+            val inserted = context.contentResolver.insert(
+                Sms.Inbox.CONTENT_URI,
+                values
+            )
+            if (inserted != null) {
+                SmsNotificationHelper.showIncomingMessage(
+                    context = context,
+                    address = address,
+                    body = body
+                )
+            }
         } finally {
             resultCode = Activity.RESULT_OK
         }
@@ -458,6 +473,15 @@ class RespondViaMessageService : Service() {
 ''',
 encoding="utf-8"
 )
+
+# Generate pure-black notification resources with the native SMS integration.
+RES = ROOT / "app/src/main/res"
+(RES / "layout").mkdir(parents=True, exist_ok=True)
+(RES / "drawable").mkdir(parents=True, exist_ok=True)
+
+(RES / "layout/notification_message.xml").write_text('<?xml version="1.0" encoding="utf-8"?>\n<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"\n    android:layout_width="match_parent"\n    android:layout_height="wrap_content"\n    android:minHeight="64dp"\n    android:orientation="vertical"\n    android:background="#000000"\n    android:paddingStart="16dp"\n    android:paddingTop="12dp"\n    android:paddingEnd="16dp"\n    android:paddingBottom="12dp">\n\n    <TextView\n        android:id="@+id/notification_sender"\n        android:layout_width="match_parent"\n        android:layout_height="wrap_content"\n        android:ellipsize="end"\n        android:maxLines="1"\n        android:textColor="#FFFFFFFF"\n        android:textSize="16sp"\n        android:textStyle="bold" />\n\n    <TextView\n        android:id="@+id/notification_body"\n        android:layout_width="match_parent"\n        android:layout_height="wrap_content"\n        android:layout_marginTop="4dp"\n        android:ellipsize="end"\n        android:maxLines="3"\n        android:textColor="#FFBDBDBD"\n        android:textSize="14sp" />\n</LinearLayout>\n', encoding="utf-8")
+
+(RES / "drawable/ic_stat_message.xml").write_text('<?xml version="1.0" encoding="utf-8"?>\n<vector xmlns:android="http://schemas.android.com/apk/res/android"\n    android:width="24dp"\n    android:height="24dp"\n    android:viewportWidth="24"\n    android:viewportHeight="24">\n    <path\n        android:fillColor="#FFFFFFFF"\n        android:pathData="M20,2H4C2.9,2 2,2.9 2,4V18C2,19.1 2.9,20 4,20H8L12,24L16,20H20C21.1,20 22,19.1 22,18V4C22,2.9 21.1,2 20,2ZM7,10H17V12H7V10ZM7,14H14V16H7V14ZM7,6H17V8H7V6Z" />\n</vector>\n', encoding="utf-8")
 
 manifest = ROOT / "app/src/main/AndroidManifest.xml"
 text = manifest.read_text(encoding="utf-8")
