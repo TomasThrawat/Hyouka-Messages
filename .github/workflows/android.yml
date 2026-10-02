@@ -56,7 +56,7 @@ jobs:
       - name: Verify native SMS notifications
         shell: bash
         run: |
-          SRC="android/app/src/main/kotlin/com/tomasthrawat/hyouka_messages"
+          SRC="android/app/src/main/kotlin/com/messages/chat"
           test -f "$SRC/SmsReceiver.kt"
           test -f "$SRC/SmsNotificationHelper.kt"
           grep -q 'android.permission.POST_NOTIFICATIONS' android/app/src/main/AndroidManifest.xml
