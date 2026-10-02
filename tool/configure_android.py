@@ -512,9 +512,20 @@ permission_block = """
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 """
 
-if 'android.permission.READ_SMS' not in text:
-    first_close = text.find('>')
-    text = text[:first_close + 1] + permission_block + text[first_close + 1:]
+first_close = text.find('>')
+if first_close == -1:
+    raise RuntimeError("Generated AndroidManifest.xml is malformed")
+
+for permission in (
+    "android.permission.READ_SMS",
+    "android.permission.RECEIVE_SMS",
+    "android.permission.SEND_SMS",
+    "android.permission.POST_NOTIFICATIONS",
+):
+    declaration = f'android:name="{permission}"'
+    if declaration not in text:
+        line = f'    <uses-permission android:name="{permission}" />\n'
+        text = text[:first_close + 1] + line + text[first_close + 1:]
 
 activity_filters = """
             <intent-filter>
