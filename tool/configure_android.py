@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path("android")
 PACKAGE = "com.tomasthrawat.hyouka_messages"
