@@ -49,6 +49,6 @@ void main() {
     expect(find.text('+201000000000'), findsOneWidget);
     expect(find.text('Hello'), findsOneWidget);
     expect(find.text('Reply'), findsOneWidget);
-    expect(find.byType(SelectionArea), findsOneWidget);
+    expect(find.byType(SelectionArea), findsNWidgets(messages.length));
   });
 }
