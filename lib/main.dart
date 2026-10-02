@@ -652,12 +652,14 @@ class ConversationScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    message.body,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      height: 1.3,
+                  SelectionArea(
+                    child: Text(
+                      message.body,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        height: 1.3,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 5),
