@@ -28,6 +28,7 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "hyouka.messages/sms"
         private const val ROLE_REQUEST = 4201
         private const val SMS_PERMISSIONS_REQUEST = 4202
+        private const val NOTIFICATION_PERMISSION_REQUEST = 4203
         private const val PREFS = "hyouka_messages"
         private const val DEFAULT_PROMPT_SHOWN = "default_prompt_shown"
     }
@@ -50,6 +51,7 @@ class MainActivity : FlutterActivity() {
                 "autoPromptDefaultSmsApp" -> autoPromptDefaultSmsApp(result)
                 "requestDefaultSmsApp" -> requestDefaultSmsApp(result)
                 "requestSmsPermissions" -> requestSmsPermissions(result)
+                "requestNotificationPermission" -> requestNotificationPermission(result)
                 "getConversations" -> queryConversations(result)
 
                 "getThreadMessages" -> {
@@ -149,10 +151,6 @@ class MainActivity : FlutterActivity() {
             Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_SMS
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            required += Manifest.permission.POST_NOTIFICATIONS
-        }
-
         val missing = required.filter {
             checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
         }
@@ -163,6 +161,27 @@ class MainActivity : FlutterActivity() {
         }
 
         requestPermissions(missing.toTypedArray(), SMS_PERMISSIONS_REQUEST)
+        result.success(false)
+    }
+
+    private fun requestNotificationPermission(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            result.success(true)
+            return
+        }
+
+        if (
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            result.success(true)
+            return
+        }
+
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            NOTIFICATION_PERMISSION_REQUEST
+        )
         result.success(false)
     }
 
@@ -490,6 +509,7 @@ permission_block = """
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 """
 
 if 'android.permission.READ_SMS' not in text:

@@ -15,7 +15,7 @@ Minimal offline Flutter SMS app with a pure-black UI.
 - Marks opened messages as read.
 - Long-pressing a conversation offers delete or cancel.
 - Select all starts a confirmation for deleting all SMS.
-- Receives delivered SMS while it is the default SMS app.
+- Receives delivered SMS while it is the default SMS app and posts a notification for each newly received SMS when notifications are allowed.
 - MMS UI is not implemented.
 - Sending UI is not implemented yet.
 

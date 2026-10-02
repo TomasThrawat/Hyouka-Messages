@@ -7,6 +7,12 @@ void main() {
     await tester.pumpWidget(const MessagesApp());
 
     expect(find.text('Messages'), findsOneWidget);
+
+    final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(app.theme?.scaffoldBackgroundColor, Colors.black);
+    expect(app.theme?.canvasColor, Colors.black);
+    expect(app.theme?.dialogTheme.backgroundColor, Colors.black);
+    expect(app.theme?.bottomSheetTheme.backgroundColor, Colors.black);
   });
 
   testWidgets('conversation screen renders an opened SMS thread',

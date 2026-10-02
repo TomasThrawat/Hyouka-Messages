@@ -53,6 +53,17 @@ jobs:
       - name: Configure Messages launcher icon
         run: python3 tool/configure_icon.py
 
+      - name: Verify native SMS notifications
+        shell: bash
+        run: |
+          SRC="android/app/src/main/kotlin/com/tomasthrawat/hyouka_messages"
+          test -f "$SRC/SmsReceiver.kt"
+          test -f "$SRC/SmsNotificationHelper.kt"
+          grep -q 'android.permission.POST_NOTIFICATIONS' android/app/src/main/AndroidManifest.xml
+          grep -q 'SMS_DELIVER' "$SRC/SmsReceiver.kt"
+          grep -q 'showIncomingMessage' "$SRC/SmsReceiver.kt"
+          echo "Verified: incoming SMS notification integration is present."
+
       - name: Get packages
         run: flutter pub get
 

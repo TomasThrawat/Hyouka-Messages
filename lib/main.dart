@@ -66,9 +66,22 @@ class MessagesApp extends StatelessWidget {
           elevation: 0,
           surfaceTintColor: Colors.transparent,
         ),
+        cardColor: Colors.black,
         dialogTheme: const DialogThemeData(
-          backgroundColor: Color(0xFF151515),
+          backgroundColor: Colors.black,
           surfaceTintColor: Colors.transparent,
+        ),
+        bottomSheetTheme: const BottomSheetThemeData(
+          backgroundColor: Colors.black,
+          surfaceTintColor: Colors.transparent,
+        ),
+        popupMenuTheme: const PopupMenuThemeData(
+          color: Colors.black,
+          surfaceTintColor: Colors.transparent,
+        ),
+        snackBarTheme: const SnackBarThemeData(
+          backgroundColor: Colors.black,
+          contentTextStyle: TextStyle(color: Colors.white),
         ),
       ),
       home: const MessagesScreen(),
@@ -89,7 +102,7 @@ class _MessagesScreenState extends State<MessagesScreen>
   bool _loading = true;
   bool _isDefault = false;
   bool _autoPromptedThisLaunch = false;
-  bool _permissionsRequestedThisLaunch = false;
+  bool _notificationPermissionRequestedThisLaunch = false;
   String? _error;
 
   @override
@@ -140,12 +153,14 @@ class _MessagesScreenState extends State<MessagesScreen>
         return;
       }
 
-      if (!_permissionsRequestedThisLaunch) {
-        _permissionsRequestedThisLaunch = true;
-        final allGranted =
-            await _smsChannel.invokeMethod<bool>('requestSmsPermissions') ??
-                false;
-        if (!allGranted) return;
+      final allGranted =
+          await _smsChannel.invokeMethod<bool>('requestSmsPermissions') ??
+              false;
+      if (!allGranted) return;
+
+      if (!_notificationPermissionRequestedThisLaunch) {
+        _notificationPermissionRequestedThisLaunch = true;
+        await _smsChannel.invokeMethod<bool>('requestNotificationPermission');
       }
 
       await _loadConversations();
@@ -357,7 +372,7 @@ class _MessagesScreenState extends State<MessagesScreen>
         children: [
           if (!_isDefault)
             Material(
-              color: const Color(0xFF111111),
+              color: Colors.black,
               child: InkWell(
                 onTap: _requestDefault,
                 child: const Padding(
@@ -420,7 +435,7 @@ class _MessagesScreenState extends State<MessagesScreen>
                         ),
                       )
                     : RefreshIndicator(
-                        backgroundColor: const Color(0xFF151515),
+                        backgroundColor: Colors.black,
                         onRefresh: _loadConversations,
                         child: ListView.separated(
                           physics: const AlwaysScrollableScrollPhysics(),
@@ -512,7 +527,7 @@ class _ConversationTile extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 26,
-                backgroundColor: const Color(0xFF242424),
+                backgroundColor: Colors.black,
                 child: Text(
                   firstCharacter,
                   style: const TextStyle(
@@ -630,9 +645,8 @@ class ConversationScreen extends StatelessWidget {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
               decoration: BoxDecoration(
-                color: message.outgoing
-                    ? const Color(0xFF1F1F1F)
-                    : const Color(0xFF141414),
+                color: Colors.black,
+                border: Border.all(color: const Color(0xFF2A2A2A)),
                 borderRadius: BorderRadius.circular(18),
               ),
               child: Column(
