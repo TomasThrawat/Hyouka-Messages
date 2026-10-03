@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
@@ -101,3 +102,29 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Send successful APK to Telegram
+        if: ${{ success() }}
+        env:
+          HYOUKA_BUILD_WEBHOOK: https://hyouka-http-mcp.vercel.app/api/telegram-build
+          GITHUB_ACTION_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          payload=$(cat <<JSON
+          {"owner":"TomasThrawat","repo":"${{ github.event.repository.name }}","runId":${{ github.run_id }},"artifactName":"hyouka-messages-release-apk-arm64-v8a","sha":"${{ github.sha }}"}
+          JSON
+          )
+          for attempt in 1 2 3; do
+            if curl --fail-with-body --silent --show-error --request POST \
+              --header "Authorization: Bearer $GITHUB_ACTION_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data "$payload" \
+              "$HYOUKA_BUILD_WEBHOOK"
+            then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 5))
+            fi
+          done
+          exit 1
